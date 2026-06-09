@@ -14,18 +14,6 @@ npm install
 npm start
 ```
 
-또는 전역 CLI로 실행:
-
-```bash
-npx job-finder
-```
-
-## 테스트
-
-```bash
-npm test
-```
-
 ## 실행파일 만들기
 
 ```bash
