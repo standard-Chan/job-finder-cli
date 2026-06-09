@@ -3,7 +3,7 @@
 const { createPrompt } = require("./cli/prompt");
 const { openDatabase } = require("./db/database");
 const { JobRepository } = require("./db/jobRepository");
-const { findMatchedJobs } = require("./matcher/keywordScorer");
+const { findMatchedJobs, SEARCH_MODES } = require("./matcher/keywordScorer");
 const { syncNewJobs } = require("./service/jobSearchService");
 
 const DEFAULT_QUERY = "백엔드 신입 Spring Node.js";
@@ -24,6 +24,16 @@ function normalizeMaxPage(input) {
   return Math.min(parsed, MAX_PAGE_LIMIT);
 }
 
+function normalizeSearchMode(input) {
+  const value = input.trim().toLowerCase();
+
+  if (value === "2" || value === "keyword" || value === "키워드") {
+    return SEARCH_MODES.KEYWORD;
+  }
+
+  return SEARCH_MODES.SEMANTIC;
+}
+
 async function run() {
   const db = openDatabase();
   const jobRepository = new JobRepository(db);
@@ -35,8 +45,12 @@ async function run() {
     console.log();
 
     const queryInput = await prompt.ask("원하는 조건을 입력하세요: ");
+    const searchModeInput = await prompt.ask(
+      "검색 방식을 선택하세요. 1=추천/의미 기반(기본), 2=키워드 반드시 포함: "
+    );
     const maxPageInput = await prompt.ask("몇 페이지까지 새 공고를 확인할까요? 기본값 3: ");
     const query = normalizeQuery(queryInput);
+    const searchMode = normalizeSearchMode(searchModeInput);
     const maxPage = normalizeMaxPage(maxPageInput);
 
     console.log();
@@ -51,7 +65,8 @@ async function run() {
     console.log(`수집 실패: ${syncResult.failedCount}개`);
 
     const jobs = jobRepository.findAll();
-    const results = findMatchedJobs(jobs, query, 50);
+    const minScore = searchMode === SEARCH_MODES.KEYWORD ? 0 : 50;
+    const results = findMatchedJobs(jobs, query, minScore, { searchMode });
 
     jobRepository.saveSearchHistory(query, results.length);
     printResults(results);
@@ -127,6 +142,7 @@ module.exports = {
   DEFAULT_QUERY,
   normalizeMaxPage,
   normalizeQuery,
+  normalizeSearchMode,
   printProgress,
   printResults,
   run,

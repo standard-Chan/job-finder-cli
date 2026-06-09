@@ -3,7 +3,9 @@ const test = require("node:test");
 
 const {
   findMatchedJobs,
+  includesAllQueryKeywords,
   resolveActivePositiveRules,
+  SEARCH_MODES,
   scoreJob,
 } = require("../../src/matcher/keywordScorer");
 
@@ -72,4 +74,58 @@ test("findMatchedJobs filters by minScore and sorts by score descending", () => 
     results.map((result) => result.id),
     [2, 1]
   );
+});
+
+test("includesAllQueryKeywords requires every query token to exist in job text", () => {
+  assert.equal(
+    includesAllQueryKeywords(
+      {
+        title: "회사｜Data Engineer",
+        raw_text: "Kafka Spring",
+      },
+      "Kafka Spring"
+    ),
+    true
+  );
+
+  assert.equal(
+    includesAllQueryKeywords(
+      {
+        title: "회사｜Backend Engineer",
+        raw_text: "Spring Node.js AWS",
+      },
+      "Kafka"
+    ),
+    false
+  );
+});
+
+test("findMatchedJobs keyword mode excludes jobs that do not contain query keywords", () => {
+  const jobs = [
+    {
+      id: 1,
+      title: "A",
+      company: "",
+      url: "https://inthiswork.com/archives/a",
+      raw_text: "Spring Node.js AWS",
+    },
+    {
+      id: 2,
+      title: "B",
+      company: "",
+      url: "https://inthiswork.com/archives/b",
+      raw_text: "Kafka Spring Boot AWS",
+    },
+  ];
+
+  const results = findMatchedJobs(jobs, "Kafka", 0, {
+    searchMode: SEARCH_MODES.KEYWORD,
+  });
+
+  assert.deepEqual(
+    results.map((result) => result.id),
+    [2]
+  );
+  assert.equal(results[0].matchedKeywords.includes("kafka"), true);
+  assert.equal(results[0].score >= 100, true);
 });

@@ -28,6 +28,11 @@ const negativeRules = [
   { keyword: "디자인", score: -50 },
 ];
 
+const SEARCH_MODES = {
+  SEMANTIC: "semantic",
+  KEYWORD: "keyword",
+};
+
 function resolveActivePositiveRules(query) {
   const queryText = query.toLowerCase();
   const activeRules = positiveRules.filter((rule) =>
@@ -69,15 +74,75 @@ function scoreJob(job, query) {
   };
 }
 
-function findMatchedJobs(jobs, query, minScore = 50) {
+function findMatchedJobs(jobs, query, minScore = 50, options = {}) {
+  const searchMode = options.searchMode || SEARCH_MODES.SEMANTIC;
+
   return jobs
-    .map((job) => scoreJob(job, query))
+    .filter((job) => {
+      if (searchMode !== SEARCH_MODES.KEYWORD) {
+        return true;
+      }
+
+      return includesAllQueryKeywords(job, query);
+    })
+    .map((job) => {
+      const result = scoreJob(job, query);
+
+      if (searchMode === SEARCH_MODES.KEYWORD) {
+        return applyRequiredKeywordMatches(result, query);
+      }
+
+      return result;
+    })
     .filter((result) => result.score >= minScore)
     .sort((a, b) => b.score - a.score);
 }
 
+function applyRequiredKeywordMatches(result, query) {
+  const requiredKeywords = extractQueryKeywords(query);
+  const matchedKeywords = [...result.matchedKeywords];
+  let score = result.score;
+
+  for (const keyword of requiredKeywords) {
+    if (!matchedKeywords.some((matchedKeyword) => matchedKeyword.toLowerCase() === keyword)) {
+      matchedKeywords.push(keyword);
+    }
+
+    score += 100;
+  }
+
+  return {
+    ...result,
+    score,
+    matchedKeywords,
+  };
+}
+
+function includesAllQueryKeywords(job, query) {
+  const keywords = extractQueryKeywords(query);
+
+  if (keywords.length === 0) {
+    return true;
+  }
+
+  const text = `${job.title} ${job.raw_text}`.toLowerCase();
+
+  return keywords.every((keyword) => text.includes(keyword));
+}
+
+function extractQueryKeywords(query) {
+  return query
+    .split(/\s+/)
+    .map((keyword) => keyword.trim().toLowerCase())
+    .filter((keyword) => keyword.length > 0);
+}
+
 module.exports = {
+  SEARCH_MODES,
+  applyRequiredKeywordMatches,
+  extractQueryKeywords,
   findMatchedJobs,
+  includesAllQueryKeywords,
   negativeRules,
   positiveRules,
   resolveActivePositiveRules,
