@@ -11,7 +11,7 @@ function openDatabase(options = {}) {
   }
 
   const dbPath = path.join(dataDir, "job-finder.db");
-  const db = new Database(dbPath);
+  const db = createDatabaseConnection(dbPath);
 
   db.pragma("foreign_keys = ON");
   createTables(db);
@@ -53,6 +53,30 @@ function createTables(db) {
     CREATE INDEX IF NOT EXISTS idx_search_history_created_at
     ON search_history(created_at);
   `);
+}
+
+function createDatabaseConnection(dbPath) {
+  try {
+    return new Database(dbPath);
+  } catch (error) {
+    if (isNativeModuleLoadError(error)) {
+      throw new Error(
+        [
+          "better-sqlite3 native module load failed.",
+          "Windows와 WSL/Linux는 node_modules를 공유할 수 없습니다.",
+          "Windows에서 실행한다면 Windows 터미널에서 `rmdir /s /q node_modules && npm install`을 실행하세요.",
+          "WSL에서 실행한다면 WSL 터미널에서 `rm -rf node_modules && npm install`을 실행하세요.",
+          `원본 오류: ${error.message}`,
+        ].join("\n")
+      );
+    }
+
+    throw error;
+  }
+}
+
+function isNativeModuleLoadError(error) {
+  return error && error.code === "ERR_DLOPEN_FAILED";
 }
 
 module.exports = {
