@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { ask } = require("./cli/prompt");
+const { createPrompt } = require("./cli/prompt");
 const { openDatabase } = require("./db/database");
 const { JobRepository } = require("./db/jobRepository");
 const { findMatchedJobs } = require("./matcher/keywordScorer");
@@ -27,14 +27,15 @@ function normalizeMaxPage(input) {
 async function run() {
   const db = openDatabase();
   const jobRepository = new JobRepository(db);
+  const prompt = createPrompt();
 
   try {
     console.log("채용공고 추천 CLI");
     console.log("====================");
     console.log();
 
-    const queryInput = await ask("원하는 조건을 입력하세요: ");
-    const maxPageInput = await ask("몇 페이지까지 새 공고를 확인할까요? 기본값 3: ");
+    const queryInput = await prompt.ask("원하는 조건을 입력하세요: ");
+    const maxPageInput = await prompt.ask("몇 페이지까지 새 공고를 확인할까요? 기본값 3: ");
     const query = normalizeQuery(queryInput);
     const maxPage = normalizeMaxPage(maxPageInput);
 
@@ -53,6 +54,7 @@ async function run() {
     jobRepository.saveSearchHistory(query, results.length);
     printResults(results);
   } finally {
+    prompt.close();
     db.close();
   }
 }

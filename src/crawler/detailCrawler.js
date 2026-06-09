@@ -3,7 +3,8 @@ const cheerio = require("cheerio");
 
 function parseJobDetail(html) {
   const $ = cheerio.load(html);
-  const rawText = $("body").text().replace(/\s+/g, " ").trim();
+  const content = $("main").first().length > 0 ? $("main").first() : $("body");
+  const rawText = content.text().replace(/\s+/g, " ").trim();
 
   return {
     rawText,

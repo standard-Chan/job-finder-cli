@@ -12,13 +12,20 @@ function buildListUrl(page) {
 }
 
 function normalizeUrl(href) {
-  return new URL(href, BASE_URL).toString();
+  const url = new URL(href, BASE_URL);
+  url.hash = "";
+  return url.toString();
 }
 
 function parseJobLinks(html) {
   const $ = cheerio.load(html);
-  const mainCandidates = $("main a, article a");
-  const candidates = mainCandidates.length > 0 ? mainCandidates : $("a");
+  const titleCandidates = $("main a.dpt-title-link[href*='/archives/']");
+  const mainCandidates = $("main a[href*='/archives/']");
+  const candidates = titleCandidates.length > 0
+    ? titleCandidates
+    : mainCandidates.length > 0
+      ? mainCandidates
+      : $("a[href*='/archives/']");
   const seen = new Set();
   const jobs = [];
 
@@ -26,7 +33,7 @@ function parseJobLinks(html) {
     const href = $(element).attr("href");
     const title = $(element).text().replace(/\s+/g, " ").trim();
 
-    if (!href || !href.includes("/archives/") || !title) {
+    if (!href || !isJobPostingUrl(href) || !title) {
       return;
     }
 
@@ -43,6 +50,11 @@ function parseJobLinks(html) {
   return jobs;
 }
 
+function isJobPostingUrl(href) {
+  const url = normalizeUrl(href);
+  return /^https:\/\/inthiswork\.com\/archives\/\d+\/?$/.test(url);
+}
+
 async function fetchJobLinks(page) {
   const response = await axios.get(buildListUrl(page), {
     headers: {
@@ -57,6 +69,7 @@ async function fetchJobLinks(page) {
 module.exports = {
   buildListUrl,
   fetchJobLinks,
+  isJobPostingUrl,
   normalizeUrl,
   parseJobLinks,
 };
