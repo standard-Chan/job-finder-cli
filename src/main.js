@@ -56,9 +56,11 @@ async function run() {
     console.log();
     console.log("새 공고 확인 중...");
 
+    const progressPrinter = createProgressPrinter(process.stdout);
     const syncResult = await syncNewJobs(jobRepository, maxPage, {
-      onProgress: printProgress,
+      onProgress: progressPrinter.printProgress,
     });
+    progressPrinter.finish();
 
     console.log(`새로 저장한 공고: ${syncResult.savedCount}개`);
     console.log(`이미 저장된 공고: ${syncResult.skippedCount}개`);
@@ -76,35 +78,80 @@ async function run() {
   }
 }
 
-function printProgress(event) {
+function createProgressPrinter(output = process.stdout) {
+  let hasActiveJobLine = false;
+
+  function writeLine(message) {
+    if (hasActiveJobLine) {
+      output.write("\n");
+      hasActiveJobLine = false;
+    }
+
+    output.write(`${message}\n`);
+  }
+
+  function updateJobLine(message) {
+    const text = `\r${message}`;
+    output.write(text.padEnd(output.columns || text.length));
+    hasActiveJobLine = true;
+  }
+
+  function finish() {
+    if (hasActiveJobLine) {
+      output.write("\n");
+      hasActiveJobLine = false;
+    }
+  }
+
+  return {
+    finish,
+    printProgress(event) {
+      printProgress(event, { writeLine, updateJobLine });
+    },
+  };
+}
+
+function printProgress(event, output = consoleProgressOutput) {
   if (event.type === "page:start") {
-    console.log(`[페이지 ${event.page}/${event.maxPage}] 목록 조회 중...`);
+    output.writeLine(`[페이지 ${event.page}/${event.maxPage}] 목록 조회 중...`);
     return;
   }
 
   if (event.type === "page:complete") {
-    console.log(`[페이지 ${event.page}/${event.maxPage}] 공고 ${event.totalJobs}개 확인 시작`);
+    output.writeLine(`[페이지 ${event.page}/${event.maxPage}] 공고 ${event.totalJobs}개 확인 시작`);
     return;
   }
 
   if (event.type === "page:failed") {
-    console.log(`[페이지 ${event.page}/${event.maxPage}] 목록 조회 실패`);
+    output.writeLine(`[페이지 ${event.page}/${event.maxPage}] 목록 조회 실패`);
     return;
   }
 
   if (event.type === "job:progress") {
-    const statusLabel = {
-      saved: "저장",
-      skipped: "이미 있음",
-      failed: "실패",
-    }[event.status] || event.status;
-
-    console.log(
+    output.updateJobLine(
       `[페이지 ${event.page}/${event.maxPage}] ` +
-        `[공고 ${event.current}/${event.total}] ` +
-        `${statusLabel} - ${event.title}`
+        `${createProgressBar(event.current, event.total)} ` +
+        `${event.title}`
     );
   }
+}
+
+const consoleProgressOutput = {
+  writeLine(message) {
+    console.log(message);
+  },
+  updateJobLine(message) {
+    process.stdout.write(`\r${message}`);
+  },
+};
+
+function createProgressBar(current, total, width = 20) {
+  const safeTotal = total > 0 ? total : 1;
+  const ratio = Math.min(current / safeTotal, 1);
+  const filled = Math.round(ratio * width);
+  const empty = width - filled;
+
+  return `[${"=".repeat(filled)}${" ".repeat(empty)}] ${current}/${total}`;
 }
 
 function printResults(results) {
@@ -140,6 +187,8 @@ module.exports = {
   MAX_PAGE_LIMIT,
   DEFAULT_MAX_PAGE,
   DEFAULT_QUERY,
+  createProgressBar,
+  createProgressPrinter,
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,
