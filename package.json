@@ -1,0 +1,24 @@
+{
+  "name": "job-finder-cli",
+  "version": "1.0.0",
+  "description": "사용자 조건 기반 채용공고 추천 CLI",
+  "main": "src/main.js",
+  "bin": {
+    "job-finder": "src/main.js"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test",
+    "build:win": "pkg src/main.js --targets node20-win-x64 --output dist/job-finder.exe",
+    "build:mac": "pkg src/main.js --targets node20-macos-x64 --output dist/job-finder",
+    "build:linux": "pkg src/main.js --targets node20-linux-x64 --output dist/job-finder"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "better-sqlite3": "^11.8.1",
+    "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
