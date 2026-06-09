@@ -42,7 +42,9 @@ async function run() {
     console.log();
     console.log("새 공고 확인 중...");
 
-    const syncResult = await syncNewJobs(jobRepository, maxPage);
+    const syncResult = await syncNewJobs(jobRepository, maxPage, {
+      onProgress: printProgress,
+    });
 
     console.log(`새로 저장한 공고: ${syncResult.savedCount}개`);
     console.log(`이미 저장된 공고: ${syncResult.skippedCount}개`);
@@ -56,6 +58,37 @@ async function run() {
   } finally {
     prompt.close();
     db.close();
+  }
+}
+
+function printProgress(event) {
+  if (event.type === "page:start") {
+    console.log(`[페이지 ${event.page}/${event.maxPage}] 목록 조회 중...`);
+    return;
+  }
+
+  if (event.type === "page:complete") {
+    console.log(`[페이지 ${event.page}/${event.maxPage}] 공고 ${event.totalJobs}개 확인 시작`);
+    return;
+  }
+
+  if (event.type === "page:failed") {
+    console.log(`[페이지 ${event.page}/${event.maxPage}] 목록 조회 실패`);
+    return;
+  }
+
+  if (event.type === "job:progress") {
+    const statusLabel = {
+      saved: "저장",
+      skipped: "이미 있음",
+      failed: "실패",
+    }[event.status] || event.status;
+
+    console.log(
+      `[페이지 ${event.page}/${event.maxPage}] ` +
+        `[공고 ${event.current}/${event.total}] ` +
+        `${statusLabel} - ${event.title}`
+    );
   }
 }
 
@@ -94,6 +127,7 @@ module.exports = {
   DEFAULT_QUERY,
   normalizeMaxPage,
   normalizeQuery,
+  printProgress,
   printResults,
   run,
 };

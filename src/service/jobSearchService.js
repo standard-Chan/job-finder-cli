@@ -12,6 +12,7 @@ function extractCompany(title) {
 async function syncNewJobs(jobRepository, maxPage, options = {}) {
   const listCrawler = options.fetchJobLinks || fetchJobLinks;
   const detailCrawler = options.fetchJobDetail || fetchJobDetail;
+  const onProgress = options.onProgress || (() => {});
   const sleepMs = options.sleepMs ?? 500;
   let savedCount = 0;
   let skippedCount = 0;
@@ -21,15 +22,38 @@ async function syncNewJobs(jobRepository, maxPage, options = {}) {
     let links;
 
     try {
+      onProgress({
+        type: "page:start",
+        page,
+        maxPage,
+      });
       links = await listCrawler(page);
+      onProgress({
+        type: "page:complete",
+        page,
+        maxPage,
+        totalJobs: links.length,
+      });
     } catch (error) {
       failedCount += 1;
+      onProgress({
+        type: "page:failed",
+        page,
+        maxPage,
+      });
       continue;
     }
 
-    for (const link of links) {
+    for (const [index, link] of links.entries()) {
       if (jobRepository.existsByUrl(link.url)) {
         skippedCount += 1;
+        onProgress(createJobProgressEvent(link, {
+          page,
+          maxPage,
+          current: index + 1,
+          total: links.length,
+          status: "skipped",
+        }));
         continue;
       }
 
@@ -45,11 +69,32 @@ async function syncNewJobs(jobRepository, maxPage, options = {}) {
 
         if (result.inserted) {
           savedCount += 1;
+          onProgress(createJobProgressEvent(link, {
+            page,
+            maxPage,
+            current: index + 1,
+            total: links.length,
+            status: "saved",
+          }));
         } else {
           skippedCount += 1;
+          onProgress(createJobProgressEvent(link, {
+            page,
+            maxPage,
+            current: index + 1,
+            total: links.length,
+            status: "skipped",
+          }));
         }
       } catch (error) {
         failedCount += 1;
+        onProgress(createJobProgressEvent(link, {
+          page,
+          maxPage,
+          current: index + 1,
+          total: links.length,
+          status: "failed",
+        }));
       }
 
       if (sleepMs > 0) {
@@ -65,6 +110,19 @@ async function syncNewJobs(jobRepository, maxPage, options = {}) {
   };
 }
 
+function createJobProgressEvent(link, progress) {
+  return {
+    type: "job:progress",
+    page: progress.page,
+    maxPage: progress.maxPage,
+    current: progress.current,
+    total: progress.total,
+    title: link.title,
+    url: link.url,
+    status: progress.status,
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -72,6 +130,7 @@ function sleep(ms) {
 }
 
 module.exports = {
+  createJobProgressEvent,
   extractCompany,
   sleep,
   syncNewJobs,

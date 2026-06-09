@@ -85,3 +85,58 @@ test("syncNewJobs continues when list or detail crawling fails", async () => {
     failedCount: 2,
   });
 });
+
+test("syncNewJobs reports page and job progress", async () => {
+  const events = [];
+  const repository = {
+    existsByUrl(url) {
+      return url.endsWith("/existing");
+    },
+    save() {
+      return { inserted: true };
+    },
+  };
+
+  await syncNewJobs(repository, 1, {
+    sleepMs: 0,
+    onProgress(event) {
+      events.push(event);
+    },
+    fetchJobLinks: async () => [
+      {
+        title: "기존회사｜Backend",
+        url: "https://inthiswork.com/archives/existing",
+      },
+      {
+        title: "새회사｜Spring Backend",
+        url: "https://inthiswork.com/archives/new",
+      },
+    ],
+    fetchJobDetail: async () => ({ rawText: "Spring Boot" }),
+  });
+
+  assert.deepEqual(events, [
+    { type: "page:start", page: 1, maxPage: 1 },
+    { type: "page:complete", page: 1, maxPage: 1, totalJobs: 2 },
+    {
+      type: "job:progress",
+      page: 1,
+      maxPage: 1,
+      current: 1,
+      total: 2,
+      title: "기존회사｜Backend",
+      url: "https://inthiswork.com/archives/existing",
+      status: "skipped",
+    },
+    {
+      type: "job:progress",
+      page: 1,
+      maxPage: 1,
+      current: 2,
+      total: 2,
+      title: "새회사｜Spring Backend",
+      url: "https://inthiswork.com/archives/new",
+      status: "saved",
+    },
+  ]);
+});
