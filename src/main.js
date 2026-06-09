@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const readline = require("node:readline");
+
 const { createPrompt } = require("./cli/prompt");
 const { openDatabase } = require("./db/database");
 const { JobRepository } = require("./db/jobRepository");
@@ -91,8 +93,16 @@ function createProgressPrinter(output = process.stdout) {
   }
 
   function updateJobLine(message) {
-    const text = `\r${message}`;
-    output.write(text.padEnd(output.columns || text.length));
+    const line = formatProgressLine(message, output.columns || 80);
+
+    if (output.isTTY) {
+      readline.clearLine(output, 0);
+      readline.cursorTo(output, 0);
+      output.write(line);
+    } else {
+      output.write(`\r${line}`);
+    }
+
     hasActiveJobLine = true;
   }
 
@@ -129,9 +139,7 @@ function printProgress(event, output = consoleProgressOutput) {
 
   if (event.type === "job:progress") {
     output.updateJobLine(
-      `[페이지 ${event.page}/${event.maxPage}] ` +
-        `${createProgressBar(event.current, event.total)} ` +
-        `${event.title}`
+      createProgressMessage(event)
     );
   }
 }
@@ -152,6 +160,41 @@ function createProgressBar(current, total, width = 20) {
   const empty = width - filled;
 
   return `[${"=".repeat(filled)}${" ".repeat(empty)}] ${current}/${total}`;
+}
+
+function createProgressMessage(event) {
+  return (
+    `[페이지 ${event.page}/${event.maxPage}] ` +
+    `${createProgressBar(event.current, event.total)} ` +
+    `${event.title}`
+  );
+}
+
+function formatProgressLine(message, columns) {
+  const maxWidth = Math.max(columns - 1, 20);
+  return truncateDisplayWidth(message, maxWidth).padEnd(maxWidth);
+}
+
+function truncateDisplayWidth(text, maxWidth) {
+  let width = 0;
+  let result = "";
+
+  for (const char of text) {
+    const charWidth = getDisplayWidth(char);
+
+    if (width + charWidth > maxWidth) {
+      return `${result.slice(0, Math.max(result.length - 1, 0))}…`;
+    }
+
+    result += char;
+    width += charWidth;
+  }
+
+  return result;
+}
+
+function getDisplayWidth(char) {
+  return char.charCodeAt(0) > 255 ? 2 : 1;
 }
 
 function printResults(results) {
@@ -188,7 +231,9 @@ module.exports = {
   DEFAULT_MAX_PAGE,
   DEFAULT_QUERY,
   createProgressBar,
+  createProgressMessage,
   createProgressPrinter,
+  formatProgressLine,
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,

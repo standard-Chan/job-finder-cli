@@ -3,7 +3,9 @@ const test = require("node:test");
 
 const {
   createProgressBar,
+  createProgressMessage,
   createProgressPrinter,
+  formatProgressLine,
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,
@@ -80,4 +82,29 @@ test("createProgressPrinter updates job progress on one line", () => {
   assert.equal(writes[2].startsWith("\r[페이지 1/1] [==========          ] 1/2 첫 번째 공고"), true);
   assert.equal(writes[3].startsWith("\r[페이지 1/1] [====================] 2/2 두 번째 공고"), true);
   assert.equal(writes[4], "\n");
+});
+
+test("formatProgressLine truncates long job titles to terminal width", () => {
+  const line = formatProgressLine(
+    "[페이지 1/1] [==========          ] 20/40 아주 긴 공고 제목입니다 아주 긴 공고 제목입니다",
+    40
+  );
+
+  assert.equal(line.length <= 39, true);
+  assert.equal(line.includes("…"), true);
+});
+
+test("createProgressMessage omits status text and keeps only job title", () => {
+  const message = createProgressMessage({
+    type: "job:progress",
+    page: 1,
+    maxPage: 1,
+    current: 1,
+    total: 2,
+    status: "saved",
+    title: "회사｜Backend Engineer",
+  });
+
+  assert.equal(message.includes("저장"), false);
+  assert.equal(message.includes("회사｜Backend Engineer"), true);
 });
