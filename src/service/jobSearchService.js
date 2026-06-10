@@ -1,5 +1,6 @@
 const { fetchJobLinks } = require("../crawler/listCrawler");
 const { fetchJobDetail } = require("../crawler/detailCrawler");
+const { parseCareerType, parseDeadline } = require("../crawler/jobMetadataParser");
 
 function extractCompany(title) {
   if (!title.includes("｜")) {
@@ -59,15 +60,26 @@ async function syncNewJobs(jobRepository, maxPage, options = {}) {
 
       try {
         const detail = await detailCrawler(link.url);
+        const deadline = parseDeadline(detail.rawText);
+        const careerType = parseCareerType(link.title, detail.rawText);
         const result = jobRepository.save({
           source: "inthiswork",
           title: link.title,
           company: extractCompany(link.title),
           url: link.url,
           rawText: detail.rawText,
+          ...deadline,
+          careerType,
         });
 
         if (result.inserted) {
+          const savedJob = typeof jobRepository.findByUrl === "function"
+            ? jobRepository.findByUrl(link.url)
+            : null;
+          await saveEmbeddingIfPossible(jobRepository, savedJob ? savedJob.id : null, {
+            title: link.title,
+            raw_text: detail.rawText,
+          }, options);
           savedCount += 1;
           onProgress(createJobProgressEvent(link, {
             page,
@@ -110,6 +122,26 @@ async function syncNewJobs(jobRepository, maxPage, options = {}) {
   };
 }
 
+async function saveEmbeddingIfPossible(jobRepository, jobPostingId, job, options) {
+  if (!options.vectorRepository || !options.createEmbedding || !jobPostingId) {
+    return;
+  }
+
+  try {
+    const input = options.createDocumentInput
+      ? options.createDocumentInput(job)
+      : `passage: ${job.title}\n${job.raw_text}`;
+    const embedding = await options.createEmbedding(input);
+
+    jobRepository.saveEmbedding(jobPostingId, embedding);
+    options.vectorRepository.save(jobPostingId, embedding.embedding);
+  } catch (error) {
+    if (typeof options.onEmbeddingFailure === "function") {
+      options.onEmbeddingFailure(error);
+    }
+  }
+}
+
 function createJobProgressEvent(link, progress) {
   return {
     type: "job:progress",
@@ -132,6 +164,7 @@ function sleep(ms) {
 module.exports = {
   createJobProgressEvent,
   extractCompany,
+  saveEmbeddingIfPossible,
   sleep,
   syncNewJobs,
 };
