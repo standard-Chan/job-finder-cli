@@ -9,6 +9,7 @@ const {
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,
+  printResults,
 } = require("../src/main");
 
 const { SEARCH_MODES } = require("../src/matcher/keywordScorer");
@@ -107,4 +108,34 @@ test("createProgressMessage omits status text and keeps only job title", () => {
 
   assert.equal(message.includes("저장"), false);
   assert.equal(message.includes("회사｜Backend Engineer"), true);
+});
+
+test("printResults prints deadline and similarity without score", () => {
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (message = "") => {
+    logs.push(message);
+  };
+
+  try {
+    printResults([
+      {
+        title: "회사｜Backend Engineer",
+        company: "회사",
+        deadlineText: "2026.07.31까지",
+        similarityLevel: "높음",
+        matchedKeywords: ["Spring"],
+        semanticMatches: [{ condition: "백엔드", similarityLevel: "높음" }],
+        warningKeywords: ["3년 이상"],
+        url: "https://example.com/job",
+      },
+    ]);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(logs.some((line) => String(line).startsWith("점수:")), false);
+  assert.equal(logs.includes("접수기간: 2026.07.31까지"), true);
+  assert.equal(logs.includes("유사도: 높음"), true);
+  assert.equal(logs.includes("매칭: Spring, 의미:백엔드(높음)"), true);
 });

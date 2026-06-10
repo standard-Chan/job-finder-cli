@@ -5,7 +5,13 @@ const readline = require("node:readline");
 const { createPrompt } = require("./cli/prompt");
 const { openDatabase } = require("./db/database");
 const { JobRepository } = require("./db/jobRepository");
-const { findMatchedJobs, SEARCH_MODES } = require("./matcher/keywordScorer");
+const { SEARCH_MODES } = require("./matcher/keywordScorer");
+const {
+  normalizeCareerFilter,
+  normalizeQueryOperator,
+  prepareSearch,
+  recommendJobs,
+} = require("./service/jobRecommendationService");
 const { syncNewJobs } = require("./service/jobSearchService");
 
 const DEFAULT_QUERY = "백엔드 신입 Spring Node.js";
@@ -50,9 +56,17 @@ async function run() {
     const searchModeInput = await prompt.ask(
       "검색 방식을 선택하세요. 1=추천/의미 기반(기본), 2=키워드 반드시 포함: "
     );
+    const careerFilterInput = await prompt.ask(
+      "경력 조건을 선택하세요. 1=신입/인턴(기본), 2=경력, 3=전체: "
+    );
+    const queryOperatorInput = await prompt.ask(
+      "다중 검색 조건을 선택하세요. 1=OR(기본), 2=AND: "
+    );
     const maxPageInput = await prompt.ask("몇 페이지까지 새 공고를 확인할까요? 기본값 3: ");
     const query = normalizeQuery(queryInput);
     const searchMode = normalizeSearchMode(searchModeInput);
+    const careerFilter = normalizeCareerFilter(careerFilterInput);
+    const queryOperator = normalizeQueryOperator(queryOperatorInput);
     const maxPage = normalizeMaxPage(maxPageInput);
 
     console.log();
@@ -68,12 +82,25 @@ async function run() {
     console.log(`이미 저장된 공고: ${syncResult.skippedCount}개`);
     console.log(`수집 실패: ${syncResult.failedCount}개`);
 
-    const jobs = jobRepository.findAll();
-    const minScore = searchMode === SEARCH_MODES.KEYWORD ? 0 : 50;
-    const results = findMatchedJobs(jobs, query, minScore, { searchMode });
+    const searchPreparation = await prepareSearch(jobRepository, { searchMode });
+    const recommendation = await recommendJobs(jobRepository, query, {
+      searchMode,
+      careerFilter,
+      queryOperator,
+      semanticAvailable: searchPreparation.semanticAvailable,
+      vectorRepository: searchPreparation.vectorRepository,
+      fallbackReason: searchPreparation.fallbackReason,
+    });
+    const results = recommendation.results;
 
-    jobRepository.saveSearchHistory(query, results.length);
-    printResults(results);
+    jobRepository.saveSearchHistory(query, results.length, {
+      searchMode: recommendation.fallbackUsed ? SEARCH_MODES.KEYWORD : searchMode,
+      careerFilter,
+      queryOperator,
+    });
+    printResults(results, {
+      fallbackUsed: recommendation.fallbackUsed,
+    });
   } finally {
     prompt.close();
     db.close();
@@ -197,8 +224,13 @@ function getDisplayWidth(char) {
   return char.charCodeAt(0) > 255 ? 2 : 1;
 }
 
-function printResults(results) {
+function printResults(results, options = {}) {
   console.log();
+  if (options.fallbackUsed) {
+    console.log("의미 검색을 사용할 수 없어 키워드 기준으로 검색했습니다.");
+    console.log();
+  }
+
   console.log("추천 공고");
   console.log("====================");
 
@@ -211,11 +243,21 @@ function printResults(results) {
     console.log();
     console.log(`[${index + 1}] ${job.title}`);
     console.log(`회사: ${job.company || "-"}`);
-    console.log(`점수: ${job.score}`);
-    console.log(`매칭: ${job.matchedKeywords.join(", ") || "-"}`);
-    console.log(`주의: ${job.warningKeywords.join(", ") || "-"}`);
+    console.log(`접수기간: ${job.deadlineText || "-"}`);
+    console.log(`유사도: ${job.similarityLevel || "-"}`);
+    console.log(`매칭: ${formatMatches(job)}`);
+    console.log(`주의: ${(job.warningKeywords || []).join(", ") || "-"}`);
     console.log(`URL: ${job.url}`);
   });
+}
+
+function formatMatches(job) {
+  const matches = [
+    ...(job.matchedKeywords || []),
+    ...(job.semanticMatches || []).map((match) => `의미:${match.condition}(${match.similarityLevel})`),
+  ];
+
+  return matches.join(", ") || "-";
 }
 
 if (require.main === module) {

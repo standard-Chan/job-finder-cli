@@ -68,6 +68,8 @@ function scoreJob(job, query) {
     title: job.title,
     company: job.company,
     url: job.url,
+    raw_text: job.raw_text,
+    deadlineText: job.deadline_text || job.deadlineText || "-",
     score,
     matchedKeywords,
     warningKeywords,
