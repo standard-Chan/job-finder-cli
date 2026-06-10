@@ -12,6 +12,7 @@ function createPrompt(input = process.stdin, output = process.stdout) {
   });
 
   return {
+    isInteractive: true,
     ask(question) {
       return askWithInterface(rl, question);
     },
@@ -26,6 +27,7 @@ function createBufferedPrompt(output) {
   let index = 0;
 
   return {
+    isInteractive: false,
     ask(question) {
       output.write(question);
       const answer = answers[index] || "";

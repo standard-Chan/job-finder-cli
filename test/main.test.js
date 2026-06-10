@@ -12,6 +12,7 @@ const {
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,
+  normalizeShouldContinue,
   printProgress,
   printResults,
 } = require("../src/main");
@@ -37,6 +38,15 @@ test("normalizeSearchMode defaults to semantic and accepts keyword mode", () => 
   assert.equal(normalizeSearchMode("2"), SEARCH_MODES.KEYWORD);
   assert.equal(normalizeSearchMode("keyword"), SEARCH_MODES.KEYWORD);
   assert.equal(normalizeSearchMode("키워드"), SEARCH_MODES.KEYWORD);
+});
+
+test("normalizeShouldContinue continues by default and exits on quit words", () => {
+  assert.equal(normalizeShouldContinue(""), true);
+  assert.equal(normalizeShouldContinue("  "), true);
+  assert.equal(normalizeShouldContinue("q"), false);
+  assert.equal(normalizeShouldContinue("EXIT"), false);
+  assert.equal(normalizeShouldContinue("종료"), false);
+  assert.equal(normalizeShouldContinue("no"), false);
 });
 
 test("createProgressBar renders current job progress", () => {

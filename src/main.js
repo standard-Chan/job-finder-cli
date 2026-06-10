@@ -42,37 +42,29 @@ function normalizeSearchMode(input) {
   return SEARCH_MODES.SEMANTIC;
 }
 
+function normalizeShouldContinue(input) {
+  const value = input.trim().toLowerCase();
+
+  return !["q", "quit", "exit", "종료", "n", "no"].includes(value);
+}
+
 async function run() {
   const db = openDatabase();
   const jobRepository = new JobRepository(db);
   const prompt = createPrompt();
+  const progressPrinter = createProgressPrinter(process.stdout);
 
   try {
     console.log("채용공고 추천 CLI");
     console.log("====================");
     console.log();
 
-    const queryInput = await prompt.ask("원하는 조건을 입력하세요: ");
-    const searchModeInput = await prompt.ask(
-      "검색 방식을 선택하세요. 1=추천/의미 기반(기본), 2=키워드 반드시 포함: "
-    );
-    const careerFilterInput = await prompt.ask(
-      "경력 조건을 선택하세요. 1=신입/인턴(기본), 2=경력, 3=전체: "
-    );
-    const queryOperatorInput = await prompt.ask(
-      "다중 검색 조건을 선택하세요. 1=OR(기본), 2=AND: "
-    );
     const maxPageInput = await prompt.ask("몇 페이지까지 새 공고를 확인할까요? 기본값 3: ");
-    const query = normalizeQuery(queryInput);
-    const searchMode = normalizeSearchMode(searchModeInput);
-    const careerFilter = normalizeCareerFilter(careerFilterInput);
-    const queryOperator = normalizeQueryOperator(queryOperatorInput);
     const maxPage = normalizeMaxPage(maxPageInput);
 
     console.log();
     console.log("새 공고 확인 중...");
 
-    const progressPrinter = createProgressPrinter(process.stdout);
     const syncResult = await syncNewJobs(jobRepository, maxPage, {
       onProgress: progressPrinter.printProgress,
     });
@@ -82,31 +74,60 @@ async function run() {
     console.log(`이미 저장된 공고: ${syncResult.skippedCount}개`);
     console.log(`수집 실패: ${syncResult.failedCount}개`);
 
-    const searchPreparation = await prepareSearch(jobRepository, {
-      searchMode,
-      onProgress: progressPrinter.printProgress,
-    });
-    const recommendation = await recommendJobs(jobRepository, query, {
-      searchMode,
-      careerFilter,
-      queryOperator,
-      semanticAvailable: searchPreparation.semanticAvailable,
-      vectorRepository: searchPreparation.vectorRepository,
-      fallbackReason: searchPreparation.fallbackReason,
-      onProgress: progressPrinter.printProgress,
-    });
-    progressPrinter.finish();
-    const results = recommendation.results;
+    let shouldContinue = true;
 
-    jobRepository.saveSearchHistory(query, results.length, {
-      searchMode: recommendation.fallbackUsed ? SEARCH_MODES.KEYWORD : searchMode,
-      careerFilter,
-      queryOperator,
-    });
-    printResults(results, {
-      fallbackUsed: recommendation.fallbackUsed,
-    });
+    while (shouldContinue) {
+      console.log();
+      const queryInput = await prompt.ask("원하는 조건을 입력하세요: ");
+      const searchModeInput = await prompt.ask(
+        "검색 방식을 선택하세요. 1=추천/의미 기반(기본), 2=키워드 반드시 포함: "
+      );
+      const careerFilterInput = await prompt.ask(
+        "경력 조건을 선택하세요. 1=신입/인턴(기본), 2=경력, 3=전체: "
+      );
+      const queryOperatorInput = await prompt.ask(
+        "다중 검색 조건을 선택하세요. 1=OR(기본), 2=AND: "
+      );
+      const query = normalizeQuery(queryInput);
+      const searchMode = normalizeSearchMode(searchModeInput);
+      const careerFilter = normalizeCareerFilter(careerFilterInput);
+      const queryOperator = normalizeQueryOperator(queryOperatorInput);
+
+      const searchPreparation = await prepareSearch(jobRepository, {
+        searchMode,
+        onProgress: progressPrinter.printProgress,
+      });
+      const recommendation = await recommendJobs(jobRepository, query, {
+        searchMode,
+        careerFilter,
+        queryOperator,
+        semanticAvailable: searchPreparation.semanticAvailable,
+        vectorRepository: searchPreparation.vectorRepository,
+        fallbackReason: searchPreparation.fallbackReason,
+        onProgress: progressPrinter.printProgress,
+      });
+      progressPrinter.finish();
+      const results = recommendation.results;
+
+      jobRepository.saveSearchHistory(query, results.length, {
+        searchMode: recommendation.fallbackUsed ? SEARCH_MODES.KEYWORD : searchMode,
+        careerFilter,
+        queryOperator,
+      });
+      printResults(results, {
+        fallbackUsed: recommendation.fallbackUsed,
+      });
+
+      if (!prompt.isInteractive) {
+        shouldContinue = false;
+        continue;
+      }
+
+      const continueInput = await prompt.ask("다시 검색할까요? Enter=계속, q=종료: ");
+      shouldContinue = normalizeShouldContinue(continueInput);
+    }
   } finally {
+    progressPrinter.finish();
     prompt.close();
     db.close();
   }
@@ -397,6 +418,7 @@ module.exports = {
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,
+  normalizeShouldContinue,
   printProgress,
   printResults,
   run,
