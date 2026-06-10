@@ -9,9 +9,9 @@
   "scripts": {
     "start": "node src/main.js",
     "test": "node --test",
-    "build:win": "pkg src/main.js --targets node20-win-x64 --output dist/job-finder.exe",
-    "build:mac": "pkg src/main.js --targets node20-macos-x64 --output dist/job-finder",
-    "build:linux": "pkg src/main.js --targets node20-linux-x64 --output dist/job-finder"
+    "build:win": "pkg src/main.js --targets node18-win-x64 --output dist/job-finder.exe",
+    "build:mac": "pkg src/main.js --targets node18-macos-x64 --output dist/job-finder",
+    "build:linux": "pkg src/main.js --targets node18-linux-x64 --output dist/job-finder"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
