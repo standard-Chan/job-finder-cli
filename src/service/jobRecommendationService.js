@@ -360,7 +360,14 @@ function matchesKeywordOperator(result, conditions, queryOperator) {
 }
 
 function needsMetadataBackfill(job) {
-  return !job.deadline_kind || job.deadline_kind === "unknown" || !job.career_type;
+  return !job.deadline_kind ||
+    job.deadline_kind === "unknown" ||
+    isSuspiciousDeadlineText(job.deadline_text) ||
+    !job.career_type;
+}
+
+function isSuspiciousDeadlineText(deadlineText) {
+  return String(deadlineText || "").length > 80;
 }
 
 function getSimilarityLevel(distance) {

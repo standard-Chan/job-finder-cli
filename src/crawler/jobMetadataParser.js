@@ -11,11 +11,15 @@ const CAREER_TYPE = {
   UNKNOWN: "unknown",
 };
 
+const MAX_DEADLINE_TEXT_LENGTH = 80;
+const DATE_PATTERN = /(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})\s*(?:일)?/g;
+const OPEN_ENDED_PATTERN = /(채용시까지|상시\s*채용|상시채용|수시\s*채용|수시채용)/i;
+
 function parseDeadline(rawText, today = new Date()) {
   const text = String(rawText || "");
   const deadlineText = extractDeadlineText(text);
 
-  if (/(채용시까지|상시채용|상시 채용|수시채용|수시 채용)/i.test(text)) {
+  if (OPEN_ENDED_PATTERN.test(text)) {
     return {
       deadlineText: deadlineText || "채용시까지",
       deadlineDate: null,
@@ -60,26 +64,84 @@ function parseCareerType(title, rawText) {
 }
 
 function extractDeadlineText(text) {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  const dateText = extractDateDeadlineText(normalizedText);
+
+  if (dateText) {
+    return dateText;
+  }
+
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const deadlineLine = lines.find((line) => /(접수|기간|마감|채용시까지|상시채용)/i.test(line));
+  const deadlineLine = lines.find((line) => (
+    line.length <= MAX_DEADLINE_TEXT_LENGTH &&
+    /(접수|기간|마감|채용시까지|상시\s*채용|상시채용|수시\s*채용|수시채용)/i.test(line)
+  ));
 
-  return deadlineLine || "";
+  if (deadlineLine) {
+    return deadlineLine;
+  }
+
+  const openEnded = normalizedText.match(OPEN_ENDED_PATTERN);
+
+  if (openEnded) {
+    return openEnded[0].replace(/\s+/g, "");
+  }
+
+  return "";
 }
 
 function extractLastDate(text) {
   const dates = [];
-  const dotPattern = /(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})\s*(?:일)?/g;
-  let match = dotPattern.exec(text);
+  DATE_PATTERN.lastIndex = 0;
+  let match = DATE_PATTERN.exec(text);
 
   while (match) {
     dates.push(toDateString(match[1], match[2], match[3]));
-    match = dotPattern.exec(text);
+    match = DATE_PATTERN.exec(text);
   }
 
   return dates.length > 0 ? dates.sort().at(-1) : null;
+}
+
+function extractDateDeadlineText(text) {
+  const matches = [];
+  DATE_PATTERN.lastIndex = 0;
+  let match = DATE_PATTERN.exec(text);
+
+  while (match) {
+    matches.push({
+      index: match.index,
+      endIndex: DATE_PATTERN.lastIndex,
+      date: toDateString(match[1], match[2], match[3]),
+    });
+    match = DATE_PATTERN.exec(text);
+  }
+
+  if (matches.length === 0) {
+    return "";
+  }
+
+  const deadlineDate = matches.sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+  const prefix = text.slice(Math.max(0, deadlineDate.index - MAX_DEADLINE_TEXT_LENGTH), deadlineDate.index);
+  const markerPattern = /(접수기간|지원기간|접수|기간|마감|~|부터)\s*[:~\-]?\s*/gi;
+  let marker = markerPattern.exec(prefix);
+  let lastMarker = null;
+
+  while (marker) {
+    lastMarker = marker;
+    marker = markerPattern.exec(prefix);
+  }
+
+  const startIndex = lastMarker
+    ? deadlineDate.index - (prefix.length - lastMarker.index)
+    : Math.max(0, deadlineDate.index - 20);
+  const suffix = text.slice(deadlineDate.endIndex, deadlineDate.endIndex + 12).match(/^\s*(까지|마감|접수|일)?/);
+  const endIndex = deadlineDate.endIndex + (suffix ? suffix[0].length : 0);
+
+  return text.slice(startIndex, endIndex).trim();
 }
 
 function toDateString(year, month, day) {

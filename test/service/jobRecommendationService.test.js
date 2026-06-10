@@ -7,6 +7,7 @@ const {
   keywordSearch,
   normalizeCareerFilter,
   normalizeQueryOperator,
+  prepareSearch,
   splitQueryConditions,
 } = require("../../src/service/jobRecommendationService");
 
@@ -152,4 +153,39 @@ test("keywordSearch reports progress", () => {
   );
   assert.equal(events[0].jobCount, 1);
   assert.equal(events[1].resultCount, 1);
+});
+
+test("prepareSearch backfills suspicious long deadline text", async () => {
+  const updates = [];
+  const longDeadlineText = [
+    "함께하시게 될 팀을 소개합니다.",
+    "LLM 및 AI 기술을 실제 서비스 가치로 전환하는 데 집중합니다.",
+    "본 채용은 수시 채용으로 적합자 발생시 자동 종료됩니다.",
+    "지원하러 가기 최신 댓글 모음 보러가기",
+  ].join(" ");
+  const repository = {
+    findAll() {
+      return [
+        {
+          id: 1,
+          title: "데이터 AI 백엔드 엔지니어",
+          raw_text: longDeadlineText,
+          deadline_text: longDeadlineText,
+          deadline_kind: "open_ended",
+          career_type: "any",
+        },
+      ];
+    },
+    updateMetadata(id, metadata) {
+      updates.push({ id, metadata });
+    },
+  };
+
+  await prepareSearch(repository, {
+    searchMode: "keyword",
+    today: "2026-06-10",
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].metadata.deadlineText, "수시채용");
 });
