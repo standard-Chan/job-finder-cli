@@ -8,7 +8,6 @@ const { JobRepository } = require("./db/jobRepository");
 const { SEARCH_MODES } = require("./matcher/keywordScorer");
 const {
   normalizeCareerFilter,
-  normalizeQueryOperator,
   prepareSearch,
   recommendJobs,
 } = require("./service/jobRecommendationService");
@@ -85,13 +84,9 @@ async function run() {
       const careerFilterInput = await prompt.ask(
         "경력 조건을 선택하세요. 1=신입/인턴(기본), 2=경력, 3=전체: "
       );
-      const queryOperatorInput = await prompt.ask(
-        "다중 검색 조건을 선택하세요. 1=OR(기본), 2=AND: "
-      );
       const query = normalizeQuery(queryInput);
       const searchMode = normalizeSearchMode(searchModeInput);
       const careerFilter = normalizeCareerFilter(careerFilterInput);
-      const queryOperator = normalizeQueryOperator(queryOperatorInput);
 
       const searchPreparation = await prepareSearch(jobRepository, {
         searchMode,
@@ -100,7 +95,6 @@ async function run() {
       const recommendation = await recommendJobs(jobRepository, query, {
         searchMode,
         careerFilter,
-        queryOperator,
         semanticAvailable: searchPreparation.semanticAvailable,
         vectorRepository: searchPreparation.vectorRepository,
         fallbackReason: searchPreparation.fallbackReason,
@@ -112,7 +106,6 @@ async function run() {
       jobRepository.saveSearchHistory(query, results.length, {
         searchMode: recommendation.fallbackUsed ? SEARCH_MODES.KEYWORD : searchMode,
         careerFilter,
-        queryOperator,
       });
       printResults(results, {
         fallbackUsed: recommendation.fallbackUsed,
