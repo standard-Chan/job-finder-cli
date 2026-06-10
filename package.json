@@ -14,9 +14,11 @@
     "build:linux": "pkg src/main.js --targets node20-linux-x64 --output dist/job-finder"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "axios": "^1.7.9",
     "better-sqlite3": "^11.8.1",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
     "pkg": "^5.8.1"
