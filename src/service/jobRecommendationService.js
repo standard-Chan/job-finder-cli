@@ -53,7 +53,13 @@ function splitQueryConditions(query) {
 async function prepareSearch(jobRepository, options = {}) {
   const today = options.today || formatDate(new Date());
   const jobs = jobRepository.findAll();
+  const onProgress = options.onProgress || (() => {});
+  let updatedMetadataCount = 0;
 
+  onProgress({
+    type: "search:metadata:start",
+    total: jobs.length,
+  });
   for (const job of jobs) {
     if (needsMetadataBackfill(job)) {
       const deadline = parseDeadline(job.raw_text, new Date(`${today}T00:00:00+09:00`));
@@ -63,8 +69,14 @@ async function prepareSearch(jobRepository, options = {}) {
         ...deadline,
         careerType,
       });
+      updatedMetadataCount += 1;
     }
   }
+  onProgress({
+    type: "search:metadata:complete",
+    total: jobs.length,
+    updatedCount: updatedMetadataCount,
+  });
 
   return prepareVectorSearch(jobRepository, options);
 }
@@ -76,9 +88,15 @@ async function prepareVectorSearch(jobRepository, options = {}) {
 
   try {
     const vectorRepository = options.vectorRepository || new VectorRepository(jobRepository.db);
+    emitProgress(options, {
+      type: "embedding:store:start",
+    });
     vectorRepository.initialize();
 
     if (options.skipEmbeddingBackfill) {
+      emitProgress(options, {
+        type: "embedding:skip",
+      });
       return { semanticAvailable: true, vectorRepository };
     }
 
@@ -86,6 +104,10 @@ async function prepareVectorSearch(jobRepository, options = {}) {
 
     return { semanticAvailable: true, vectorRepository };
   } catch (error) {
+    emitProgress(options, {
+      type: "embedding:failed",
+      message: error.message,
+    });
     return {
       semanticAvailable: false,
       fallbackReason: error.message,
@@ -96,21 +118,66 @@ async function prepareVectorSearch(jobRepository, options = {}) {
 async function backfillEmbeddings(jobRepository, vectorRepository, options = {}) {
   const createEmbeddingFn = options.createEmbedding || createEmbedding;
   const jobs = jobRepository.findAll();
+  const startedAt = Date.now();
+  let reusedCount = 0;
+  let createdCount = 0;
+  let modelLoadNotified = false;
 
-  for (const job of jobs) {
+  emitProgress(options, {
+    type: "embedding:start",
+    total: jobs.length,
+  });
+
+  for (const [index, job] of jobs.entries()) {
+    const current = index + 1;
     const input = createDocumentInput(job);
     const contentHash = createContentHash(input);
     const savedEmbedding = jobRepository.findEmbedding(job.id);
 
     if (savedEmbedding && savedEmbedding.content_hash === contentHash) {
       vectorRepository.save(job.id, savedEmbedding.embedding);
+      reusedCount += 1;
+      emitProgress(options, createEmbeddingProgressEvent({
+        current,
+        total: jobs.length,
+        title: job.title,
+        status: "reused",
+        reusedCount,
+        createdCount,
+        startedAt,
+      }));
       continue;
+    }
+
+    if (!modelLoadNotified) {
+      emitProgress(options, {
+        type: "embedding:model:loading",
+      });
+      modelLoadNotified = true;
     }
 
     const embedding = await createEmbeddingFn(input);
     jobRepository.saveEmbedding(job.id, embedding);
     vectorRepository.save(job.id, embedding.embedding);
+    createdCount += 1;
+    emitProgress(options, createEmbeddingProgressEvent({
+      current,
+      total: jobs.length,
+      title: job.title,
+      status: "created",
+      reusedCount,
+      createdCount,
+      startedAt,
+    }));
   }
+
+  emitProgress(options, {
+    type: "embedding:complete",
+    total: jobs.length,
+    reusedCount,
+    createdCount,
+    elapsedMs: Date.now() - startedAt,
+  });
 }
 
 async function recommendJobs(jobRepository, query, options = {}) {
@@ -128,12 +195,17 @@ async function recommendJobs(jobRepository, query, options = {}) {
         results: await semanticSearch(searchableJobs, conditions, queryOperator, options),
       };
     } catch (error) {
+      emitProgress(options, {
+        type: "search:fallback",
+        message: error.message,
+      });
       return {
         fallbackUsed: true,
         fallbackReason: error.message,
         results: keywordSearch(searchableJobs, query, {
           searchMode: SEARCH_MODES.SEMANTIC,
           queryOperator,
+          onProgress: options.onProgress,
         }),
       };
     }
@@ -145,6 +217,7 @@ async function recommendJobs(jobRepository, query, options = {}) {
     results: keywordSearch(searchableJobs, query, {
       searchMode,
       queryOperator,
+      onProgress: options.onProgress,
     }),
   };
 }
@@ -154,15 +227,38 @@ async function semanticSearch(jobs, conditions, queryOperator, options) {
   const vectorRepository = options.vectorRepository;
   const jobMap = new Map(jobs.map((job) => [job.id, job]));
   const conditionMatches = [];
+  const startedAt = Date.now();
 
-  for (const condition of conditions) {
+  emitProgress(options, {
+    type: "search:semantic:start",
+    total: conditions.length,
+    jobCount: jobs.length,
+  });
+
+  for (const [index, condition] of conditions.entries()) {
     const embedding = await createEmbeddingFn(createQueryInput(condition));
     const matches = vectorRepository.search(embedding.embedding, options.limit || 50)
       .filter((match) => jobMap.has(match.job_posting_id));
     conditionMatches.push({ condition, matches });
+    emitProgress(options, {
+      type: "search:semantic:progress",
+      current: index + 1,
+      total: conditions.length,
+      condition,
+      matchedCount: matches.length,
+      estimatedRemainingMs: estimateRemainingMs(startedAt, index + 1, conditions.length),
+    });
   }
 
-  return mergeSemanticMatches(jobMap, conditionMatches, queryOperator);
+  const results = mergeSemanticMatches(jobMap, conditionMatches, queryOperator);
+  emitProgress(options, {
+    type: "search:semantic:complete",
+    total: conditions.length,
+    resultCount: results.length,
+    elapsedMs: Date.now() - startedAt,
+  });
+
+  return results;
 }
 
 function mergeSemanticMatches(jobMap, conditionMatches, queryOperator) {
@@ -190,17 +286,28 @@ function mergeSemanticMatches(jobMap, conditionMatches, queryOperator) {
 }
 
 function keywordSearch(jobs, query, options = {}) {
+  emitProgress(options, {
+    type: "search:keyword:start",
+    jobCount: jobs.length,
+  });
   const conditions = splitQueryConditions(query);
   const matches = findMatchedJobs(jobs, query, 0, {
     searchMode: SEARCH_MODES.SEMANTIC,
   }).filter((result) => matchesKeywordOperator(result, conditions, options.queryOperator));
 
-  return matches.map((result) => ({
+  const results = matches.map((result) => ({
     ...result,
     deadlineText: result.deadlineText || result.deadline_text || "-",
     similarityLevel: result.score > 0 ? "보통" : "낮음",
     semanticMatches: [],
   }));
+
+  emitProgress(options, {
+    type: "search:keyword:complete",
+    resultCount: results.length,
+  });
+
+  return results;
 }
 
 function addKeywordEvidence(result) {
@@ -268,10 +375,42 @@ function getSimilarityLevel(distance) {
   return "낮음";
 }
 
+function createEmbeddingProgressEvent(progress) {
+  return {
+    type: "embedding:progress",
+    current: progress.current,
+    total: progress.total,
+    title: progress.title,
+    status: progress.status,
+    reusedCount: progress.reusedCount,
+    createdCount: progress.createdCount,
+    estimatedRemainingMs: estimateRemainingMs(progress.startedAt, progress.current, progress.total),
+  };
+}
+
+function estimateRemainingMs(startedAt, current, total) {
+  if (current <= 0 || total <= current) {
+    return 0;
+  }
+
+  const elapsedMs = Date.now() - startedAt;
+  const averageMs = elapsedMs / current;
+
+  return Math.max(Math.round(averageMs * (total - current)), 0);
+}
+
+function emitProgress(options, event) {
+  if (typeof options.onProgress === "function") {
+    options.onProgress(event);
+  }
+}
+
 module.exports = {
   CAREER_FILTERS,
   QUERY_OPERATORS,
   backfillEmbeddings,
+  createEmbeddingProgressEvent,
+  estimateRemainingMs,
   getSimilarityLevel,
   keywordSearch,
   normalizeCareerFilter,

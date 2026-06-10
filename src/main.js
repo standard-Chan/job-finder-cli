@@ -82,7 +82,10 @@ async function run() {
     console.log(`이미 저장된 공고: ${syncResult.skippedCount}개`);
     console.log(`수집 실패: ${syncResult.failedCount}개`);
 
-    const searchPreparation = await prepareSearch(jobRepository, { searchMode });
+    const searchPreparation = await prepareSearch(jobRepository, {
+      searchMode,
+      onProgress: progressPrinter.printProgress,
+    });
     const recommendation = await recommendJobs(jobRepository, query, {
       searchMode,
       careerFilter,
@@ -90,7 +93,9 @@ async function run() {
       semanticAvailable: searchPreparation.semanticAvailable,
       vectorRepository: searchPreparation.vectorRepository,
       fallbackReason: searchPreparation.fallbackReason,
+      onProgress: progressPrinter.printProgress,
     });
+    progressPrinter.finish();
     const results = recommendation.results;
 
     jobRepository.saveSearchHistory(query, results.length, {
@@ -168,6 +173,83 @@ function printProgress(event, output = consoleProgressOutput) {
     output.updateJobLine(
       createProgressMessage(event)
     );
+    return;
+  }
+
+  if (event.type === "search:metadata:start") {
+    output.writeLine(`검색 준비 중... 저장 공고 ${event.total}개 확인`);
+    return;
+  }
+
+  if (event.type === "search:metadata:complete") {
+    output.writeLine(`검색 준비 완료: 메타데이터 ${event.updatedCount}개 보정`);
+    return;
+  }
+
+  if (event.type === "embedding:store:start") {
+    output.writeLine("임베딩 저장소 준비 중...");
+    return;
+  }
+
+  if (event.type === "embedding:skip") {
+    output.writeLine("임베딩 백필 건너뜀");
+    return;
+  }
+
+  if (event.type === "embedding:model:loading") {
+    output.writeLine("임베딩 모델 로드 중... 최초 실행이면 모델 다운로드로 시간이 걸릴 수 있습니다.");
+    return;
+  }
+
+  if (event.type === "embedding:start") {
+    output.writeLine(`임베딩 확인 중... 저장 공고 ${event.total}개`);
+    return;
+  }
+
+  if (event.type === "embedding:progress") {
+    output.updateJobLine(createEmbeddingProgressMessage(event));
+    return;
+  }
+
+  if (event.type === "embedding:complete") {
+    output.writeLine(
+      `임베딩 완료: 생성 ${event.createdCount}개, 재사용 ${event.reusedCount}개, 소요 ${formatDuration(event.elapsedMs)}`
+    );
+    return;
+  }
+
+  if (event.type === "embedding:failed") {
+    output.writeLine(`임베딩 준비 실패: ${event.message}`);
+    return;
+  }
+
+  if (event.type === "search:semantic:start") {
+    output.writeLine(`검색중... 조건 ${event.total}개, 검색 대상 ${event.jobCount}개`);
+    return;
+  }
+
+  if (event.type === "search:semantic:progress") {
+    output.updateJobLine(createSemanticSearchProgressMessage(event));
+    return;
+  }
+
+  if (event.type === "search:semantic:complete") {
+    output.writeLine(`검색 완료: 결과 ${event.resultCount}개, 소요 ${formatDuration(event.elapsedMs)}`);
+    return;
+  }
+
+  if (event.type === "search:keyword:start") {
+    output.writeLine(`키워드 검색중... 검색 대상 ${event.jobCount}개`);
+    return;
+  }
+
+  if (event.type === "search:keyword:complete") {
+    output.writeLine(`키워드 검색 완료: 결과 ${event.resultCount}개`);
+    return;
+  }
+
+  if (event.type === "search:fallback") {
+    output.writeLine(`의미 검색 실패, 키워드 검색으로 전환: ${event.message}`);
   }
 }
 
@@ -195,6 +277,39 @@ function createProgressMessage(event) {
     `${createProgressBar(event.current, event.total)} ` +
     `${event.title}`
   );
+}
+
+function createEmbeddingProgressMessage(event) {
+  return (
+    `임베딩중 ${createProgressBar(event.current, event.total)} ` +
+    `생성 ${event.createdCount} 재사용 ${event.reusedCount} ` +
+    `남은 예상 ${formatDuration(event.estimatedRemainingMs)} ` +
+    `${event.title}`
+  );
+}
+
+function createSemanticSearchProgressMessage(event) {
+  return (
+    `검색중 ${createProgressBar(event.current, event.total)} ` +
+    `"${event.condition}" 매칭 ${event.matchedCount}개 ` +
+    `남은 예상 ${formatDuration(event.estimatedRemainingMs)}`
+  );
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return "0초";
+  }
+
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) {
+    return `${seconds}초`;
+  }
+
+  return `${minutes}분 ${seconds}초`;
 }
 
 function formatProgressLine(message, columns) {
@@ -273,9 +388,12 @@ module.exports = {
   DEFAULT_MAX_PAGE,
   DEFAULT_QUERY,
   createProgressBar,
+  createEmbeddingProgressMessage,
   createProgressMessage,
   createProgressPrinter,
+  createSemanticSearchProgressMessage,
   formatProgressLine,
+  formatDuration,
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,

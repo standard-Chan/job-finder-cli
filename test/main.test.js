@@ -3,12 +3,16 @@ const test = require("node:test");
 
 const {
   createProgressBar,
+  createEmbeddingProgressMessage,
   createProgressMessage,
   createProgressPrinter,
+  createSemanticSearchProgressMessage,
+  formatDuration,
   formatProgressLine,
   normalizeMaxPage,
   normalizeQuery,
   normalizeSearchMode,
+  printProgress,
   printResults,
 } = require("../src/main");
 
@@ -108,6 +112,64 @@ test("createProgressMessage omits status text and keeps only job title", () => {
 
   assert.equal(message.includes("저장"), false);
   assert.equal(message.includes("회사｜Backend Engineer"), true);
+});
+
+test("progress messages show embedding and search estimates", () => {
+  assert.equal(formatDuration(0), "0초");
+  assert.equal(formatDuration(61000), "1분 1초");
+
+  const embeddingMessage = createEmbeddingProgressMessage({
+    current: 2,
+    total: 4,
+    createdCount: 1,
+    reusedCount: 1,
+    estimatedRemainingMs: 30000,
+    title: "회사｜Backend Engineer",
+  });
+  const searchMessage = createSemanticSearchProgressMessage({
+    current: 1,
+    total: 2,
+    condition: "Kafka",
+    matchedCount: 3,
+    estimatedRemainingMs: 1000,
+  });
+
+  assert.equal(embeddingMessage.includes("임베딩중"), true);
+  assert.equal(embeddingMessage.includes("남은 예상 30초"), true);
+  assert.equal(searchMessage.includes("검색중"), true);
+  assert.equal(searchMessage.includes("\"Kafka\" 매칭 3개"), true);
+});
+
+test("printProgress renders embedding progress events", () => {
+  const writes = [];
+  const updates = [];
+  const output = {
+    writeLine(message) {
+      writes.push(message);
+    },
+    updateJobLine(message) {
+      updates.push(message);
+    },
+  };
+
+  printProgress({ type: "embedding:start", total: 3 }, output);
+  printProgress({
+    type: "embedding:progress",
+    current: 1,
+    total: 3,
+    createdCount: 1,
+    reusedCount: 0,
+    estimatedRemainingMs: 2000,
+    title: "첫 공고",
+  }, output);
+  printProgress({ type: "search:keyword:complete", resultCount: 2 }, output);
+
+  assert.deepEqual(writes, [
+    "임베딩 확인 중... 저장 공고 3개",
+    "키워드 검색 완료: 결과 2개",
+  ]);
+  assert.equal(updates[0].includes("임베딩중"), true);
+  assert.equal(updates[0].includes("첫 공고"), true);
 });
 
 test("printResults prints deadline and similarity without score", () => {
